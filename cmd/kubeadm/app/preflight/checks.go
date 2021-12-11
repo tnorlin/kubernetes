@@ -915,7 +915,8 @@ func RunInitNodeChecks(execer utilsexec.Interface, cfg *kubeadmapi.InitConfigura
 		NumCPUCheck{NumCPU: kubeadmconstants.ControlPlaneNumCPU},
 		// Linux only
 		// TODO: support other OS, if control-plane is supported on it.
-		MemCheck{Mem: kubeadmconstants.ControlPlaneMem},
+		// illumos uses other constants, ignore for now
+		// MemCheck{Mem: kubeadmconstants.ControlPlaneMem},
 		KubernetesVersionCheck{KubernetesVersion: cfg.KubernetesVersion, KubeadmVersion: kubeadmversion.Get().GitVersion},
 		FirewalldCheck{ports: []int{int(cfg.LocalAPIEndpoint.BindPort), kubeadmconstants.KubeletPort}},
 		PortOpenCheck{port: int(cfg.LocalAPIEndpoint.BindPort)},

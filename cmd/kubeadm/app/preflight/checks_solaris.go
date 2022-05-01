@@ -13,8 +13,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-//go:build !solaris
-// +build !solaris
+//go:build solaris
+// +build solaris
 
 package preflight
 
@@ -917,7 +917,8 @@ func RunInitNodeChecks(execer utilsexec.Interface, cfg *kubeadmapi.InitConfigura
 		NumCPUCheck{NumCPU: kubeadmconstants.ControlPlaneNumCPU},
 		// Linux only
 		// TODO: support other OS, if control-plane is supported on it.
-		MemCheck{Mem: kubeadmconstants.ControlPlaneMem},
+                // illumos uses other constants, ignore for now
+		// MemCheck{Mem: kubeadmconstants.ControlPlaneMem},
 		KubernetesVersionCheck{KubernetesVersion: cfg.KubernetesVersion, KubeadmVersion: kubeadmversion.Get().GitVersion},
 		FirewalldCheck{ports: []int{int(cfg.LocalAPIEndpoint.BindPort), kubeadmconstants.KubeletPort}},
 		PortOpenCheck{port: int(cfg.LocalAPIEndpoint.BindPort)},

@@ -147,6 +147,9 @@ kube::util::host_os() {
     Linux)
       host_os=linux
       ;;
+    SunOS)
+      host_os=solaris
+      ;;
     *)
       kube::log::error "Unsupported host OS.  Must be Linux or Mac OS X."
       exit 1
@@ -162,6 +165,9 @@ kube::util::host_arch() {
       host_arch=amd64
       ;;
     i?86_64*)
+      host_arch=amd64
+      ;;
+    i86pc*)
       host_arch=amd64
       ;;
     amd64*)

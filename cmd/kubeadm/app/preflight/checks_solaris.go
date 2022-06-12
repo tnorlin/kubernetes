@@ -13,8 +13,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-//go:build !solaris
-// +build !solaris
+//go:build solaris
+// +build solaris
 
 package preflight
 
@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -508,7 +509,9 @@ func (subnet HTTPProxyCIDRCheck) Check() (warnings, errorList []error) {
 }
 
 // SystemVerificationCheck defines struct used for running the system verification node check in test/e2e_node/system
-type SystemVerificationCheck struct{}
+type SystemVerificationCheck struct {
+	IsDocker bool
+}
 
 // Name will return SystemVerification as name for SystemVerificationCheck
 func (SystemVerificationCheck) Name() string {
@@ -528,6 +531,11 @@ func (sysver SystemVerificationCheck) Check() (warnings, errorList []error) {
 	// All the common validators we'd like to run:
 	var validators = []system.Validator{
 		&system.KernelValidator{Reporter: reporter}}
+
+	// run the docker validator only with docker runtime
+	if sysver.IsDocker {
+		validators = append(validators, &system.DockerValidator{Reporter: reporter})
+	}
 
 	if runtime.GOOS == "linux" {
 		//add linux validators
@@ -742,7 +750,7 @@ func (evc ExternalEtcdVersionCheck) Check() (warnings, errorList []error) {
 func (evc ExternalEtcdVersionCheck) configRootCAs(config *tls.Config) (*tls.Config, error) {
 	var CACertPool *x509.CertPool
 	if evc.Etcd.External.CAFile != "" {
-		CACert, err := os.ReadFile(evc.Etcd.External.CAFile)
+		CACert, err := ioutil.ReadFile(evc.Etcd.External.CAFile)
 		if err != nil {
 			return nil, errors.Wrapf(err, "couldn't load external etcd's server certificate %s", evc.Etcd.External.CAFile)
 		}
@@ -909,7 +917,8 @@ func RunInitNodeChecks(execer utilsexec.Interface, cfg *kubeadmapi.InitConfigura
 		NumCPUCheck{NumCPU: kubeadmconstants.ControlPlaneNumCPU},
 		// Linux only
 		// TODO: support other OS, if control-plane is supported on it.
-		MemCheck{Mem: kubeadmconstants.ControlPlaneMem},
+                // illumos uses other constants, ignore for now
+		// MemCheck{Mem: kubeadmconstants.ControlPlaneMem},
 		KubernetesVersionCheck{KubernetesVersion: cfg.KubernetesVersion, KubeadmVersion: kubeadmversion.Get().GitVersion},
 		FirewalldCheck{ports: []int{int(cfg.LocalAPIEndpoint.BindPort), kubeadmconstants.KubeletPort}},
 		PortOpenCheck{port: int(cfg.LocalAPIEndpoint.BindPort)},
@@ -935,7 +944,7 @@ func RunInitNodeChecks(execer utilsexec.Interface, cfg *kubeadmapi.InitConfigura
 
 		// Check if Bridge-netfilter and IPv6 relevant flags are set
 		if ip := netutils.ParseIPSloppy(cfg.LocalAPIEndpoint.AdvertiseAddress); ip != nil {
-			if netutils.IsIPv6(ip) && runtime.GOOS == "linux" {
+			if netutils.IsIPv6(ip) {
 				checks = append(checks,
 					FileContentCheck{Path: bridgenf6, Content: []byte{'1'}},
 					FileContentCheck{Path: ipv6DefaultForwarding, Content: []byte{'1'}},
@@ -1005,7 +1014,7 @@ func RunJoinNodeChecks(execer utilsexec.Interface, cfg *kubeadmapi.JoinConfigura
 			}
 		}
 	}
-	if addIPv6Checks && runtime.GOOS == "linux" {
+	if addIPv6Checks {
 		checks = append(checks,
 			FileContentCheck{Path: bridgenf6, Content: []byte{'1'}},
 			FileContentCheck{Path: ipv6DefaultForwarding, Content: []byte{'1'}},
@@ -1018,38 +1027,38 @@ func RunJoinNodeChecks(execer utilsexec.Interface, cfg *kubeadmapi.JoinConfigura
 // addCommonChecks is a helper function to duplicate checks that are common between both the
 // kubeadm init and join commands
 func addCommonChecks(execer utilsexec.Interface, k8sVersion string, nodeReg *kubeadmapi.NodeRegistrationOptions, checks []Checker) []Checker {
-	containerRuntime, err := utilruntime.NewContainerRuntime(execer, nodeReg.CRISocket)
-	if err != nil {
-		klog.Warningf("[preflight] WARNING: Couldn't create the interface used for talking to the container runtime: %v\n", err)
-	} else {
-		checks = append(checks, ContainerRuntimeCheck{runtime: containerRuntime})
-	}
+        containerRuntime, err := utilruntime.NewContainerRuntime(execer, nodeReg.CRISocket)
+        if err != nil {
+                klog.Warningf("[preflight] WARNING: Couldn't create the interface used for talking to the container runtime: %v\n", err)
+        } else {
+                checks = append(checks, ContainerRuntimeCheck{runtime: containerRuntime})
+        }
 
-	// non-windows checks
-	if runtime.GOOS == "linux" {
-		checks = append(checks,
-			FileContentCheck{Path: bridgenf, Content: []byte{'1'}},
-			FileContentCheck{Path: ipv4Forward, Content: []byte{'1'}},
-			SwapCheck{},
-			InPathCheck{executable: "crictl", mandatory: true, exec: execer},
-			InPathCheck{executable: "conntrack", mandatory: true, exec: execer},
-			InPathCheck{executable: "ip", mandatory: true, exec: execer},
-			InPathCheck{executable: "iptables", mandatory: true, exec: execer},
-			InPathCheck{executable: "mount", mandatory: true, exec: execer},
-			InPathCheck{executable: "nsenter", mandatory: true, exec: execer},
-			InPathCheck{executable: "ebtables", mandatory: false, exec: execer},
-			InPathCheck{executable: "ethtool", mandatory: false, exec: execer},
-			InPathCheck{executable: "socat", mandatory: false, exec: execer},
-			InPathCheck{executable: "tc", mandatory: false, exec: execer},
-			InPathCheck{executable: "touch", mandatory: false, exec: execer})
-	}
-	checks = append(checks,
-		SystemVerificationCheck{},
-		HostnameCheck{nodeName: nodeReg.Name},
-		KubeletVersionCheck{KubernetesVersion: k8sVersion, exec: execer},
-		ServiceCheck{Service: "kubelet", CheckIfActive: false},
-		PortOpenCheck{port: kubeadmconstants.KubeletPort})
-	return checks
+        // non-windows checks
+        if runtime.GOOS == "linux" {
+                checks = append(checks,
+                        FileContentCheck{Path: bridgenf, Content: []byte{'1'}},
+                        FileContentCheck{Path: ipv4Forward, Content: []byte{'1'}},
+                        SwapCheck{},
+                        InPathCheck{executable: "crictl", mandatory: true, exec: execer},
+                        InPathCheck{executable: "conntrack", mandatory: true, exec: execer},
+                        InPathCheck{executable: "ip", mandatory: true, exec: execer},
+                        InPathCheck{executable: "iptables", mandatory: true, exec: execer},
+                        InPathCheck{executable: "mount", mandatory: true, exec: execer},
+                        InPathCheck{executable: "nsenter", mandatory: true, exec: execer},
+                        InPathCheck{executable: "ebtables", mandatory: false, exec: execer},
+                        InPathCheck{executable: "ethtool", mandatory: false, exec: execer},
+                        InPathCheck{executable: "socat", mandatory: false, exec: execer},
+                        InPathCheck{executable: "tc", mandatory: false, exec: execer},
+                        InPathCheck{executable: "touch", mandatory: false, exec: execer})
+        }
+        checks = append(checks,
+                SystemVerificationCheck{},
+                HostnameCheck{nodeName: nodeReg.Name},
+                KubeletVersionCheck{KubernetesVersion: k8sVersion, exec: execer},
+                ServiceCheck{Service: "kubelet", CheckIfActive: false},
+                PortOpenCheck{port: kubeadmconstants.KubeletPort})
+        return checks
 }
 
 // RunRootCheckOnly initializes checks slice of structs and call RunChecks

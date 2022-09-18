@@ -27,6 +27,9 @@ readonly KUBE_SUPPORTED_SERVER_PLATFORMS=(
   linux/arm64
   linux/s390x
   linux/ppc64le
+  solaris/amd64
+  freebsd/amd64
+  openbsd/amd64
 )
 
 # The node platforms we build for
@@ -36,6 +39,9 @@ readonly KUBE_SUPPORTED_NODE_PLATFORMS=(
   linux/arm64
   linux/s390x
   linux/ppc64le
+  solaris/amd64
+  freebsd/amd64
+  openbsd/amd64
   windows/amd64
 )
 
@@ -50,6 +56,9 @@ readonly KUBE_SUPPORTED_CLIENT_PLATFORMS=(
   linux/ppc64le
   darwin/amd64
   darwin/arm64
+  solaris/amd64
+  freebsd/amd64
+  openbsd/amd64
   windows/amd64
   windows/386
   windows/arm64
@@ -65,6 +74,9 @@ readonly KUBE_SUPPORTED_TEST_PLATFORMS=(
   linux/ppc64le
   darwin/amd64
   darwin/arm64
+  solaris/amd64
+  freebsd/amd64
+  openbsd/amd64
   windows/amd64
   windows/arm64
 )
@@ -217,25 +229,51 @@ kube::golang::setup_platforms() {
       # on any platform other than amd64, arm64, ppc64le and s390x, we just default to amd64
       host_arch="amd64"
     fi
-    KUBE_SERVER_PLATFORMS=("linux/${host_arch}")
+    KUBE_SERVER_PLATFORMS=(
+      "linux/${host_arch}"
+      "solaris/${host_arch}"
+      "freebsd/${host_arch}"
+      "openbsd/${host_arch}"
+    )
     readonly KUBE_SERVER_PLATFORMS
-    KUBE_NODE_PLATFORMS=("linux/${host_arch}")
+    KUBE_NODE_PLATFORMS=(
+      "linux/${host_arch}"
+      "solaris/${host_arch}"
+      "freebsd/${host_arch}"
+      "openbsd/${host_arch}"
+    )
     readonly KUBE_NODE_PLATFORMS
     if [[ "${KUBE_BUILDER_OS:-}" == "darwin"* ]]; then
       KUBE_TEST_PLATFORMS=(
         "darwin/${host_arch}"
         "linux/${host_arch}"
+        "solaris/${host_arch}"
+        "freebsd/${host_arch}"
+        "openbsd/${host_arch}"
       )
       readonly KUBE_TEST_PLATFORMS
       KUBE_CLIENT_PLATFORMS=(
         "darwin/${host_arch}"
         "linux/${host_arch}"
+        "solaris/${host_arch}"
+        "freebsd/${host_arch}"
+        "openbsd/${host_arch}"
       )
       readonly KUBE_CLIENT_PLATFORMS
     else
-      KUBE_TEST_PLATFORMS=("linux/${host_arch}")
+      KUBE_TEST_PLATFORMS=(
+        "linux/${host_arch}"
+        "solaris/${host_arch}"
+        "freebsd/${host_arch}"
+        "openbsd/${host_arch}"
+      )
       readonly KUBE_TEST_PLATFORMS
-      KUBE_CLIENT_PLATFORMS=("linux/${host_arch}")
+      KUBE_CLIENT_PLATFORMS=(
+        "linux/${host_arch}"
+        "solaris/${host_arch}"
+        "freebsd/${host_arch}"
+        "openbsd/${host_arch}"
+      )
       readonly KUBE_CLIENT_PLATFORMS
     fi
   else
@@ -443,6 +481,10 @@ kube::golang::set_platform_envs() {
       "linux/s390x")
         export CGO_ENABLED=1
         export CC=${KUBE_LINUX_S390X_CC:-s390x-linux-gnu-gcc}
+        ;;
+      "solaris/amd64")
+        export CGO_ENABLED=1
+        export CC=${KUBE_LINUX_PPC64LE_CC:-i86pc-linux-gnu-gcc}
         ;;
     esac
   fi

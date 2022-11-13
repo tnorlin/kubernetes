@@ -1,5 +1,5 @@
-//go:build !windows && !solaris
-// +build !windows,!solaris
+//go:build solaris
+// +build solaris
 
 /*
 Copyright 2019 The Kubernetes Authors.
@@ -20,15 +20,12 @@ limitations under the License.
 package mount
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"strconv"
 	"strings"
 	"syscall"
 
-	"k8s.io/klog/v2"
 	utilio "k8s.io/utils/io"
 )
 
@@ -179,23 +176,8 @@ func isMountPointMatch(mp MountPoint, dir string) bool {
 
 // PathExists returns true if the specified path exists.
 // TODO: clean this up to use pkg/util/file/FileExists
+// Not implemented
+// LocalEndpoint empty implementation
 func PathExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	} else if errors.Is(err, fs.ErrNotExist) {
-		err = syscall.Access(path, syscall.F_OK)
-		if err == nil {
-			// The access syscall says the file exists, the stat syscall says it
-			// doesn't. This was observed on CIFS when the path was removed at
-			// the server somehow. POSIX calls this a stale file handle, let's fake
-			// that error and treat the path as existing but corrupted.
-			klog.Warningf("Potential stale file handle detected: %s", path)
-			return true, syscall.ESTALE
-		}
-		return false, nil
-	} else if IsCorruptedMnt(err) {
-		return true, err
-	}
-	return false, err
+        return false, fmt.Errorf("PathExist are unsupported in this build")
 }

@@ -39,10 +39,12 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/daemon"
+	"k8s.io/kubernetes/pkg/controlplane"
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
 	labelsutil "k8s.io/kubernetes/pkg/util/labels"
@@ -52,14 +54,26 @@ import (
 var zero = int64(0)
 
 func setup(t *testing.T) (context.Context, kubeapiservertesting.TearDownFunc, *daemon.DaemonSetsController, informers.SharedInformerFactory, clientset.Interface) {
-	// Disable ServiceAccount admission plugin as we don't have serviceaccount controller running.
-	server := kubeapiservertesting.StartTestServerOrDie(t, nil, []string{"--disable-admission-plugins=ServiceAccount,TaintNodesByCondition"}, framework.SharedEtcd())
+	return setupWithServerSetup(t, framework.TestServerSetup{})
+}
 
-	config := restclient.CopyConfig(server.ClientConfig)
-	clientSet, err := clientset.NewForConfig(config)
-	if err != nil {
-		t.Fatalf("Error in creating clientset: %v", err)
+func setupWithServerSetup(t *testing.T, serverSetup framework.TestServerSetup) (context.Context, kubeapiservertesting.TearDownFunc, *daemon.DaemonSetsController, informers.SharedInformerFactory, clientset.Interface) {
+	modifyServerRunOptions := serverSetup.ModifyServerRunOptions
+	serverSetup.ModifyServerRunOptions = func(opts *options.ServerRunOptions) {
+		if modifyServerRunOptions != nil {
+			modifyServerRunOptions(opts)
+		}
+
+		opts.Admission.GenericAdmission.DisablePlugins = append(opts.Admission.GenericAdmission.DisablePlugins,
+			// Disable ServiceAccount admission plugin as we don't have
+			// serviceaccount controller running.
+			"ServiceAccount",
+			"TaintNodesByCondition",
+		)
 	}
+
+	clientSet, config, closeFn := framework.StartTestServer(t, serverSetup)
+
 	resyncPeriod := 12 * time.Hour
 	informers := informers.NewSharedInformerFactory(clientset.NewForConfigOrDie(restclient.AddUserAgent(config, "daemonset-informers")), resyncPeriod)
 	dc, err := daemon.NewDaemonSetsController(
@@ -96,7 +110,7 @@ func setup(t *testing.T) (context.Context, kubeapiservertesting.TearDownFunc, *d
 
 	tearDownFn := func() {
 		cancel()
-		server.TearDownFn()
+		closeFn()
 		eventBroadcaster.Shutdown()
 	}
 
@@ -850,23 +864,30 @@ func TestDSCUpdatesPodLabelAfterDedupCurHistories(t *testing.T) {
 		t.Fatalf("Failed to update the pod label after new controllerrevision is created: %v", err)
 	}
 
-	revs, err := clientset.AppsV1().ControllerRevisions(ds.Namespace).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		t.Fatalf("Failed to list controllerrevision: %v", err)
-	}
-	if revs.Size() == 0 {
-		t.Fatalf("No avaialable controllerrevision")
-	}
+	err = wait.PollImmediate(1*time.Second, 10*time.Second, func() (bool, error) {
+		revs, err := clientset.AppsV1().ControllerRevisions(ds.Namespace).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return false, fmt.Errorf("failed to list controllerrevision: %v", err)
+		}
+		if revs.Size() == 0 {
+			return false, fmt.Errorf("no avaialable controllerrevision")
+		}
 
-	for _, rev := range revs.Items {
-		t.Logf("revision: %v;hash: %v", rev.Name, rev.ObjectMeta.Labels[apps.DefaultDaemonSetUniqueLabelKey])
-		for _, oref := range rev.OwnerReferences {
-			if oref.Kind == "DaemonSet" && oref.UID == ds.UID {
-				if rev.Name != newName {
-					t.Fatalf("duplicate controllerrevision is not deleted")
+		for _, rev := range revs.Items {
+			t.Logf("revision: %v;hash: %v", rev.Name, rev.ObjectMeta.Labels[apps.DefaultDaemonSetUniqueLabelKey])
+			for _, oref := range rev.OwnerReferences {
+				if oref.Kind == "DaemonSet" && oref.UID == ds.UID {
+					if rev.Name != newName {
+						t.Logf("waiting for duplicate controllerrevision %v to be deleted", newName)
+						return false, nil
+					}
 				}
 			}
 		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to check that duplicate controllerrevision is not deleted: %v", err)
 	}
 }
 
@@ -990,5 +1011,42 @@ func TestUnschedulableNodeDaemonDoesLaunchPod(t *testing.T) {
 
 		validateDaemonSetPodsAndMarkReady(podClient, podInformer, 2, t)
 		validateDaemonSetStatus(dsClient, ds.Name, 2, t)
+	})
+}
+
+func TestUpdateStatusDespitePodCreationFailure(t *testing.T) {
+	forEachStrategy(t, func(t *testing.T, strategy *apps.DaemonSetUpdateStrategy) {
+		limitedPodNumber := 2
+		ctx, closeFn, dc, informers, clientset := setupWithServerSetup(t, framework.TestServerSetup{
+			ModifyServerConfig: func(config *controlplane.Config) {
+				config.GenericConfig.AdmissionControl = &fakePodFailAdmission{
+					limitedPodNumber: limitedPodNumber,
+				}
+			},
+		})
+		defer closeFn()
+		ns := framework.CreateNamespaceOrDie(clientset, "update-status-despite-pod-failure", t)
+		defer framework.DeleteNamespaceOrDie(clientset, ns, t)
+
+		dsClient := clientset.AppsV1().DaemonSets(ns.Name)
+		podClient := clientset.CoreV1().Pods(ns.Name)
+		nodeClient := clientset.CoreV1().Nodes()
+		podInformer := informers.Core().V1().Pods().Informer()
+
+		informers.Start(ctx.Done())
+		go dc.Run(ctx, 2)
+
+		ds := newDaemonSet("foo", ns.Name)
+		ds.Spec.UpdateStrategy = *strategy
+		_, err := dsClient.Create(context.TODO(), ds, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatalf("Failed to create DaemonSet: %v", err)
+		}
+		defer cleanupDaemonSets(t, clientset, ds)
+
+		addNodes(nodeClient, 0, 5, nil, t)
+
+		validateDaemonSetPodsAndMarkReady(podClient, podInformer, limitedPodNumber, t)
+		validateDaemonSetStatus(dsClient, ds.Name, int32(limitedPodNumber), t)
 	})
 }

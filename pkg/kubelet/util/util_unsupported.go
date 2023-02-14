@@ -1,5 +1,5 @@
-//go:build !freebsd && !linux && !windows && !darwin
-// +build !freebsd,!linux,!windows,!darwin
+//go:build !freebsd && !linux && !windows && !darwin && !solaris && !openbsd
+// +build !freebsd,!linux,!windows,!darwin,!solaris,!openbsd
 
 /*
 Copyright 2017 The Kubernetes Authors.

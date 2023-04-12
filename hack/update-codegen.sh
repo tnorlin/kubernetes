@@ -38,6 +38,12 @@ PRJ_SRC_PATH="k8s.io/kubernetes"
 BOILERPLATE_FILENAME="vendor/k8s.io/code-generator/hack/boilerplate.go.txt"
 APPLYCONFIG_PKG="k8s.io/client-go/applyconfigurations"
 
+# Any time we call sort, we want it in the same locale.
+export LC_ALL="C"
+
+# Work around for older grep tools which might have options we don't want.
+unset GREP_OPTIONS
+
 if [[ "${DBG_CODEGEN}" == 1 ]]; then
     kube::log::status "DBG: starting generated_files"
 fi
@@ -46,13 +52,15 @@ function git_find() {
     # Similar to find but faster and easier to understand.  We want to include
     # modified and untracked files because this might be running against code
     # which is not tracked by git yet.
-    git ls-files -cmo --exclude-standard "$@"
+    git ls-files -cmo --exclude-standard ':!:vendor/*' "$@"
 }
 
 function git_grep() {
     # We want to include modified and untracked files because this might be
     # running against code which is not tracked by git yet.
-    git grep --untracked "$@"
+    # We need vendor exclusion added at the end since it has to be part of
+    # the pathspecs which are specified last.
+    git grep --untracked "$@" ':!:vendor/*'
 }
 
 # Generate a list of all files that have a `+k8s:` comment-tag.  This will be
@@ -71,7 +79,6 @@ kube::util::read-array ALL_K8S_TAG_FILES < <(
     git_grep -l \
         -e '^// *+k8s:'                `# match +k8s: tags` \
         -- \
-        ':!:vendor/*'                  `# not under vendor` \
         ':!:*/testdata/*'              `# not under any testdata` \
         ':(glob)**/*.go'               `# in any *.go file` \
         | sed 's|^staging/src|vendor|' `# see comments above` \
@@ -101,7 +108,7 @@ function codegen::protobuf() {
             cmd pkg staging \
             | xargs -0 -n1 dirname \
             | sed 's|^|k8s.io/kubernetes/|;s|k8s.io/kubernetes/staging/src/||' \
-            | LC_ALL=C sort -u)
+            | sort -u)
 
     kube::log::status "Generating protobufs for ${#apis[@]} targets"
     if [[ "${DBG_CODEGEN}" == 1 ]]; then
@@ -221,9 +228,9 @@ function codegen::prerelease() {
     fi
     local tag_dirs=()
     kube::util::read-array tag_dirs < <( \
-        grep -l --null --color=never '+k8s:prerelease-lifecycle-gen=true' "${ALL_K8S_TAG_FILES[@]}" \
+        grep -l --null '+k8s:prerelease-lifecycle-gen=true' "${ALL_K8S_TAG_FILES[@]}" \
             | xargs -0 -n1 dirname \
-            | LC_ALL=C sort -u)
+            | sort -u)
     if [[ "${DBG_CODEGEN}" == 1 ]]; then
         kube::log::status "DBG: found ${#tag_dirs[@]} +k8s:prerelease-lifecycle-gen tagged dirs"
     fi
@@ -284,9 +291,9 @@ function codegen::deepcopy() {
     fi
     local tag_dirs=()
     kube::util::read-array tag_dirs < <( \
-        grep -l --null --color=never '+k8s:deepcopy-gen=' "${ALL_K8S_TAG_FILES[@]}" \
+        grep -l --null '+k8s:deepcopy-gen=' "${ALL_K8S_TAG_FILES[@]}" \
             | xargs -0 -n1 dirname \
-            | LC_ALL=C sort -u)
+            | sort -u)
     if [[ "${DBG_CODEGEN}" == 1 ]]; then
         kube::log::status "DBG: found ${#tag_dirs[@]} +k8s:deepcopy-gen tagged dirs"
     fi
@@ -354,9 +361,9 @@ function codegen::defaults() {
     fi
     local tag_dirs=()
     kube::util::read-array tag_dirs < <( \
-        grep -l --null --color=never '+k8s:defaulter-gen=' "${ALL_K8S_TAG_FILES[@]}" \
+        grep -l --null '+k8s:defaulter-gen=' "${ALL_K8S_TAG_FILES[@]}" \
             | xargs -0 -n1 dirname \
-            | LC_ALL=C sort -u)
+            | sort -u)
     if [[ "${DBG_CODEGEN}" == 1 ]]; then
         kube::log::status "DBG: found ${#tag_dirs[@]} +k8s:defaulter-gen tagged dirs"
     fi
@@ -429,9 +436,9 @@ function codegen::conversions() {
     fi
     local tag_dirs=()
     kube::util::read-array tag_dirs < <(\
-        grep -l --null --color=never '^// *+k8s:conversion-gen=' "${ALL_K8S_TAG_FILES[@]}" \
+        grep -l --null '^// *+k8s:conversion-gen=' "${ALL_K8S_TAG_FILES[@]}" \
             | xargs -0 -n1 dirname \
-            | LC_ALL=C sort -u)
+            | sort -u)
     if [[ "${DBG_CODEGEN}" == 1 ]]; then
         kube::log::status "DBG: found ${#tag_dirs[@]} +k8s:conversion-gen tagged dirs"
     fi
@@ -645,9 +652,9 @@ function codegen::openapi() {
 
         local tag_dirs=()
         kube::util::read-array tag_dirs < <(
-            grep -l --null --color=never '+k8s:openapi-gen=' $(indirect_array "${prefix}_tag_files") \
+            grep -l --null '+k8s:openapi-gen=' $(indirect_array "${prefix}_tag_files") \
                 | xargs -0 -n1 dirname \
-                | LC_ALL=C sort -u)
+                | sort -u)
 
         if [[ "${DBG_CODEGEN}" == 1 ]]; then
             kube::log::status "DBG: found ${#tag_dirs[@]} +k8s:openapi-gen tagged dirs for ${prefix}"
@@ -707,7 +714,7 @@ function codegen::applyconfigs() {
         cd "${KUBE_ROOT}/staging/src"
         git_find -z ':(glob)k8s.io/api/**/types.go' \
             | xargs -0 -n1 dirname \
-            | LC_ALL=C sort -u)
+            | sort -u)
     ext_apis+=("k8s.io/apimachinery/pkg/apis/meta/v1")
 
     kube::log::status "Generating apply-config code for ${#ext_apis[@]} targets"
@@ -803,7 +810,7 @@ function codegen::listers() {
         cd "${KUBE_ROOT}/staging/src"
         git_find -z ':(glob)k8s.io/api/**/types.go' \
             | xargs -0 -n1 dirname \
-            | LC_ALL=C sort -u)
+            | sort -u)
 
     kube::log::status "Generating lister code for ${#ext_apis[@]} targets"
     if [[ "${DBG_CODEGEN}" == 1 ]]; then
@@ -843,7 +850,7 @@ function codegen::informers() {
         cd "${KUBE_ROOT}/staging/src"
         git_find -z ':(glob)k8s.io/api/**/types.go' \
             | xargs -0 -n1 dirname \
-            | LC_ALL=C sort -u)
+            | sort -u)
 
     kube::log::status "Generating informer code for ${#ext_apis[@]} targets"
     if [[ "${DBG_CODEGEN}" == 1 ]]; then
@@ -996,7 +1003,8 @@ for arg; do
         print_codegens
         exit 1
     fi
-    codegens_to_run+=("${matches[@]}")
+    # The array-syntax abomination is to accommodate older bash.
+    codegens_to_run+=("${matches[@]:+"${matches[@]}"}")
 done
 
 # If no codegens were specified, run them all.
@@ -1005,5 +1013,6 @@ if [[ "${#codegens_to_run[@]}" == 0 ]]; then
 fi
 
 for g in "${codegens_to_run[@]}"; do
-    "codegen::${g}" "${flags_to_pass[@]}"
+    # The array-syntax abomination is to accommodate older bash.
+    "codegen::${g}" "${flags_to_pass[@]:+"${flags_to_pass[@]}"}"
 done

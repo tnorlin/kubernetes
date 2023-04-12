@@ -107,7 +107,6 @@ var args = []string{
 	"--enable-dynamic-provisioning=false",
 	"--enable-garbage-collector=false",
 	"--enable-hostpath-provisioner=true",
-	"--enable-taint-manager=false",
 	"--cluster-signing-duration=10h",
 	"--flex-volume-plugin-dir=/flex-volume-plugin",
 	"--volume-host-cidr-denylist=127.0.0.1/28,feed::/16",
@@ -142,7 +141,6 @@ var args = []string{
 	"--node-monitor-grace-period=30s",
 	"--node-monitor-period=10s",
 	"--node-startup-grace-period=30s",
-	"--pod-eviction-timeout=2m",
 	"--profiling=false",
 	"--pv-recycler-increment-timeout-nfs=45",
 	"--pv-recycler-minimum-timeout-hostpath=45",
@@ -180,6 +178,7 @@ func TestAddFlags(t *testing.T) {
 				Address:         "0.0.0.0", // Note: This field should have no effect in CM now, and "0.0.0.0" is the default value.
 				MinResyncPeriod: metav1.Duration{Duration: 8 * time.Hour},
 				ClientConnection: componentbaseconfig.ClientConnectionConfiguration{
+					Kubeconfig:  "/kubeconfig",
 					ContentType: "application/json",
 					QPS:         50.0,
 					Burst:       100,
@@ -343,12 +342,10 @@ func TestAddFlags(t *testing.T) {
 		},
 		NodeLifecycleController: &NodeLifecycleControllerOptions{
 			&nodelifecycleconfig.NodeLifecycleControllerConfiguration{
-				EnableTaintManager:        false,
 				NodeEvictionRate:          0.2,
 				SecondaryNodeEvictionRate: 0.05,
 				NodeMonitorGracePeriod:    metav1.Duration{Duration: 30 * time.Second},
 				NodeStartupGracePeriod:    metav1.Duration{Duration: 30 * time.Second},
-				PodEvictionTimeout:        metav1.Duration{Duration: 2 * time.Minute},
 				LargeClusterSizeThreshold: 100,
 				UnhealthyZoneThreshold:    0.6,
 			},
@@ -434,10 +431,9 @@ func TestAddFlags(t *testing.T) {
 			AlwaysAllowPaths:             []string{"/healthz", "/readyz", "/livez"}, // note: this does not match /healthz/ or /healthz/*
 			AlwaysAllowGroups:            []string{"system:masters"},
 		},
-		Kubeconfig: "/kubeconfig",
-		Master:     "192.168.4.20",
-		Metrics:    &metrics.Options{},
-		Logs:       logs.NewOptions(),
+		Master:  "192.168.4.20",
+		Metrics: &metrics.Options{},
+		Logs:    logs.NewOptions(),
 	}
 
 	// Sort GCIgnoredResources because it's built from a map, which means the
@@ -468,6 +464,7 @@ func TestApplyTo(t *testing.T) {
 				Address:         "0.0.0.0", // Note: This field should have no effect in CM now, and "0.0.0.0" is the default value.
 				MinResyncPeriod: metav1.Duration{Duration: 8 * time.Hour},
 				ClientConnection: componentbaseconfig.ClientConnectionConfiguration{
+					Kubeconfig:  "/kubeconfig",
 					ContentType: "application/json",
 					QPS:         50.0,
 					Burst:       100,
@@ -588,12 +585,10 @@ func TestApplyTo(t *testing.T) {
 				NodeCIDRMaskSizeIPv6: 108,
 			},
 			NodeLifecycleController: nodelifecycleconfig.NodeLifecycleControllerConfiguration{
-				EnableTaintManager:        false,
 				NodeEvictionRate:          0.2,
 				SecondaryNodeEvictionRate: 0.05,
 				NodeMonitorGracePeriod:    metav1.Duration{Duration: 30 * time.Second},
 				NodeStartupGracePeriod:    metav1.Duration{Duration: 30 * time.Second},
-				PodEvictionTimeout:        metav1.Duration{Duration: 2 * time.Minute},
 				LargeClusterSizeThreshold: 100,
 				UnhealthyZoneThreshold:    0.6,
 			},
@@ -1163,12 +1158,10 @@ func TestValidateControllersOptions(t *testing.T) {
 			expectErrors: false,
 			validate: (&NodeLifecycleControllerOptions{
 				&nodelifecycleconfig.NodeLifecycleControllerConfiguration{
-					EnableTaintManager:        false,
 					NodeEvictionRate:          0.2,
 					SecondaryNodeEvictionRate: 0.05,
 					NodeMonitorGracePeriod:    metav1.Duration{Duration: 30 * time.Second},
 					NodeStartupGracePeriod:    metav1.Duration{Duration: 30 * time.Second},
-					PodEvictionTimeout:        metav1.Duration{Duration: 2 * time.Minute},
 					LargeClusterSizeThreshold: 100,
 					UnhealthyZoneThreshold:    0.6,
 				},

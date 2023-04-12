@@ -48,8 +48,8 @@ import (
 )
 
 const (
-	NodePrepareResourceMethod   = "/v1alpha1.Node/NodePrepareResource"
-	NodeUnprepareResourceMethod = "/v1alpha1.Node/NodeUnprepareResource"
+	NodePrepareResourceMethod   = "/v1alpha2.Node/NodePrepareResource"
+	NodeUnprepareResourceMethod = "/v1alpha2.Node/NodeUnprepareResource"
 )
 
 type Nodes struct {
@@ -140,10 +140,7 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 	d.ctx = ctx
 	d.cleanup = append(d.cleanup, cancel)
 
-	// The controller is easy: we simply connect to the API server. It
-	// would be slightly nicer if we had a way to wait for all goroutines, but
-	// SharedInformerFactory has no API for that. At least we can wait
-	// for our own goroutine to stop once the context gets cancelled.
+	// The controller is easy: we simply connect to the API server.
 	d.Controller = app.NewController(d.f.ClientSet, d.Name, resources)
 	d.wg.Add(1)
 	go func() {

@@ -25,22 +25,27 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"k8s.io/kubernetes/pkg/util/procfs"
+
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/component-base/featuregate"
 	internalapi "k8s.io/cri-api/pkg/apis"
+	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/klog/v2"
 	kubeletpodresourcesv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	kubeletpodresourcesv1alpha1 "k8s.io/kubelet/pkg/apis/podresources/v1alpha1"
@@ -51,8 +56,10 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 	kubeletmetrics "k8s.io/kubernetes/pkg/kubelet/metrics"
+	"k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/kubelet/util"
 
+	"github.com/coreos/go-systemd/v22/dbus"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2ekubelet "k8s.io/kubernetes/test/e2e/framework/kubelet"
 	e2emetrics "k8s.io/kubernetes/test/e2e/framework/metrics"
@@ -82,12 +89,14 @@ const (
 
 var kubeletHealthCheckURL = fmt.Sprintf("http://127.0.0.1:%d/healthz", ports.KubeletHealthzPort)
 
+var containerRuntimeUnitName = ""
+
 func getNodeSummary(ctx context.Context) (*stats.Summary, error) {
 	kubeletConfig, err := getCurrentKubeletConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current kubelet config")
 	}
-	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/stats/summary", net.JoinHostPort(kubeletConfig.Address, strconv.Itoa(int(kubeletConfig.ReadOnlyPort)))), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s/stats/summary", net.JoinHostPort(kubeletConfig.Address, strconv.Itoa(int(kubeletConfig.ReadOnlyPort)))), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build http request: %w", err)
 	}
@@ -155,7 +164,7 @@ func getV1NodeDevices(ctx context.Context) (*kubeletpodresourcesv1.ListPodResour
 // Returns the current KubeletConfiguration
 func getCurrentKubeletConfig(ctx context.Context) (*kubeletconfig.KubeletConfiguration, error) {
 	// namespace only relevant if useProxy==true, so we don't bother
-	return e2ekubelet.GetCurrentKubeletConfig(ctx, framework.TestContext.NodeName, "", false)
+	return e2ekubelet.GetCurrentKubeletConfig(ctx, framework.TestContext.NodeName, "", false, framework.TestContext.StandaloneMode)
 }
 
 // Must be called within a Context. Allows the function to modify the KubeletConfiguration during the BeforeEach of the context.
@@ -338,6 +347,71 @@ func findKubeletServiceName(running bool) string {
 	return kubeletServiceName
 }
 
+func findContainerRuntimeServiceName() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := dbus.NewWithContext(ctx)
+	framework.ExpectNoError(err, "Failed to setup dbus connection")
+	defer conn.Close()
+
+	runtimePids, err := getPidsForProcess(framework.TestContext.ContainerRuntimeProcessName, framework.TestContext.ContainerRuntimePidFile)
+	framework.ExpectNoError(err, "failed to get list of container runtime pids")
+	framework.ExpectEqual(len(runtimePids), 1, "Unexpected number of container runtime pids. Expected 1 but got %v", len(runtimePids))
+
+	containerRuntimePid := runtimePids[0]
+
+	unitName, err := conn.GetUnitNameByPID(ctx, uint32(containerRuntimePid))
+	framework.ExpectNoError(err, "Failed to get container runtime unit name")
+
+	return unitName, nil
+}
+
+type containerRuntimeUnitOp int
+
+const (
+	startContainerRuntimeUnitOp containerRuntimeUnitOp = iota
+	stopContainerRuntimeUnitOp
+)
+
+func performContainerRuntimeUnitOp(op containerRuntimeUnitOp) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := dbus.NewWithContext(ctx)
+	framework.ExpectNoError(err, "Failed to setup dbus connection")
+	defer conn.Close()
+
+	if containerRuntimeUnitName == "" {
+		containerRuntimeUnitName, err = findContainerRuntimeServiceName()
+		framework.ExpectNoError(err, "Failed to find container runtime name")
+	}
+
+	reschan := make(chan string)
+
+	switch op {
+	case startContainerRuntimeUnitOp:
+		conn.StartUnitContext(ctx, containerRuntimeUnitName, "replace", reschan)
+	case stopContainerRuntimeUnitOp:
+		conn.StopUnitContext(ctx, containerRuntimeUnitName, "replace", reschan)
+	default:
+		framework.Failf("Unexpected container runtime op: %v", op)
+	}
+
+	job := <-reschan
+	framework.ExpectEqual(job, "done", "Expected job to complete with done")
+
+	return nil
+}
+
+func stopContainerRuntime() error {
+	return performContainerRuntimeUnitOp(stopContainerRuntimeUnitOp)
+}
+
+func startContainerRuntime() error {
+	return performContainerRuntimeUnitOp(startContainerRuntimeUnitOp)
+}
+
 // restartKubelet restarts the current kubelet service.
 // the "current" kubelet service is the instance managed by the current e2e_node test run.
 // If `running` is true, restarts only if the current kubelet is actually running. In some cases,
@@ -436,4 +510,62 @@ func withFeatureGate(feature featuregate.Feature, desired bool) func() {
 	return func() {
 		utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=%v", string(feature), current))
 	}
+}
+
+// waitForAllContainerRemoval waits until all the containers on a given pod are really gone.
+// This is needed by the e2e tests which involve exclusive resource allocation (cpu, topology manager; podresources; etc.)
+// In these cases, we need to make sure the tests clean up after themselves to make sure each test runs in
+// a pristine environment. The only way known so far to do that is to introduce this wait.
+// Worth noting, however, that this makes the test runtime much bigger.
+func waitForAllContainerRemoval(ctx context.Context, podName, podNS string) {
+	rs, _, err := getCRIClient()
+	framework.ExpectNoError(err)
+	gomega.Eventually(ctx, func(ctx context.Context) error {
+		containers, err := rs.ListContainers(ctx, &runtimeapi.ContainerFilter{
+			LabelSelector: map[string]string{
+				types.KubernetesPodNameLabel:      podName,
+				types.KubernetesPodNamespaceLabel: podNS,
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("got error waiting for all containers to be removed from CRI: %v", err)
+		}
+
+		if len(containers) > 0 {
+			return fmt.Errorf("expected all containers to be removed from CRI but %v containers still remain. Containers: %+v", len(containers), containers)
+		}
+		return nil
+	}, 2*time.Minute, 1*time.Second).Should(gomega.Succeed())
+}
+
+func getPidsForProcess(name, pidFile string) ([]int, error) {
+	if len(pidFile) > 0 {
+		pid, err := getPidFromPidFile(pidFile)
+		if err == nil {
+			return []int{pid}, nil
+		}
+		// log the error and fall back to pidof
+		runtime.HandleError(err)
+	}
+	return procfs.PidOf(name)
+}
+
+func getPidFromPidFile(pidFile string) (int, error) {
+	file, err := os.Open(pidFile)
+	if err != nil {
+		return 0, fmt.Errorf("error opening pid file %s: %v", pidFile, err)
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return 0, fmt.Errorf("error reading pid file %s: %v", pidFile, err)
+	}
+
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return 0, fmt.Errorf("error parsing %s as a number: %v", string(data), err)
+	}
+
+	return pid, nil
 }

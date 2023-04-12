@@ -25,12 +25,11 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apiserver/pkg/storage/value/encrypt/envelope/metrics"
-	mock "k8s.io/apiserver/pkg/storage/value/encrypt/envelope/testing/v2alpha1"
-	"k8s.io/component-base/metrics/testutil"
-
 	"k8s.io/apimachinery/pkg/util/uuid"
-	kmsservice "k8s.io/kms/service"
+	"k8s.io/apiserver/pkg/storage/value/encrypt/envelope/metrics"
+	mock "k8s.io/apiserver/pkg/storage/value/encrypt/envelope/testing/v2"
+	"k8s.io/component-base/metrics/testutil"
+	kmsservice "k8s.io/kms/pkg/service"
 )
 
 const (
@@ -149,7 +148,8 @@ func TestTimeouts(t *testing.T) {
 
 				service, err = NewGRPCService(ctx, socketName.endpoint, testProviderName, tt.callTimeout)
 				if err != nil {
-					t.Fatalf("failed to create envelope service, error: %v", err)
+					t.Errorf("failed to create envelope service, error: %v", err)
+					return
 				}
 				defer destroyService(service)
 				kubeAPIServerWG.Done()
@@ -164,10 +164,12 @@ func TestTimeouts(t *testing.T) {
 
 				f, err := mock.NewBase64Plugin(socketName.path)
 				if err != nil {
-					t.Fatalf("failed to construct test KMS provider server, error: %v", err)
+					t.Errorf("failed to construct test KMS provider server, error: %v", err)
+					return
 				}
 				if err := f.Start(); err != nil {
-					t.Fatalf("Failed to start test KMS provider server, error: %v", err)
+					t.Errorf("Failed to start test KMS provider server, error: %v", err)
+					return
 				}
 				defer f.CleanUp()
 				kmsPluginWG.Done()
@@ -176,6 +178,9 @@ func TestTimeouts(t *testing.T) {
 			}()
 
 			kubeAPIServerWG.Wait()
+			if t.Failed() {
+				return
+			}
 			_, err = service.Encrypt(ctx, uid, data)
 
 			if err == nil && tt.wantErr != "" {
@@ -435,7 +440,7 @@ func TestKMSOperationsMetric(t *testing.T) {
 					t.Fatalf("failed when execute encrypt, error: %v", err)
 				}
 			},
-			labelValues: []string{testProviderName, "/v2alpha1.KeyManagementService/Encrypt", "OK"},
+			labelValues: []string{testProviderName, "/v2.KeyManagementService/Encrypt", "OK"},
 			wantCount:   1,
 		},
 		{
@@ -445,7 +450,7 @@ func TestKMSOperationsMetric(t *testing.T) {
 					t.Fatalf("failed when execute decrypt, error: %v", err)
 				}
 			},
-			labelValues: []string{testProviderName, "/v2alpha1.KeyManagementService/Decrypt", "OK"},
+			labelValues: []string{testProviderName, "/v2.KeyManagementService/Decrypt", "OK"},
 			wantCount:   1,
 		},
 		{
@@ -455,7 +460,7 @@ func TestKMSOperationsMetric(t *testing.T) {
 					t.Fatalf("failed when execute status, error: %v", err)
 				}
 			},
-			labelValues: []string{testProviderName, "/v2alpha1.KeyManagementService/Status", "OK"},
+			labelValues: []string{testProviderName, "/v2.KeyManagementService/Status", "OK"},
 			wantCount:   1,
 		},
 		{
@@ -467,7 +472,7 @@ func TestKMSOperationsMetric(t *testing.T) {
 					}
 				}
 			},
-			labelValues: []string{testProviderName, "/v2alpha1.KeyManagementService/Status", "OK"},
+			labelValues: []string{testProviderName, "/v2.KeyManagementService/Status", "OK"},
 			wantCount:   10,
 		},
 	}

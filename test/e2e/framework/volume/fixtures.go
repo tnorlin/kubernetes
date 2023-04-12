@@ -149,6 +149,10 @@ type Test struct {
 
 // NewNFSServer is a NFS-specific wrapper for CreateStorageServer.
 func NewNFSServer(ctx context.Context, cs clientset.Interface, namespace string, args []string) (config TestConfig, pod *v1.Pod, host string) {
+	return NewNFSServerWithNodeName(ctx, cs, namespace, args, "")
+}
+
+func NewNFSServerWithNodeName(ctx context.Context, cs clientset.Interface, namespace string, args []string, nodeName string) (config TestConfig, pod *v1.Pod, host string) {
 	config = TestConfig{
 		Namespace:          namespace,
 		Prefix:             "nfs",
@@ -157,6 +161,10 @@ func NewNFSServer(ctx context.Context, cs clientset.Interface, namespace string,
 		ServerVolumes:      map[string]string{"": "/exports"},
 		ServerReadyMessage: "NFS started",
 	}
+	if nodeName != "" {
+		config.ClientNodeSelection = e2epod.NodeSelection{Name: nodeName}
+	}
+
 	if len(args) > 0 {
 		config.ServerArgs = args
 	}
@@ -174,7 +182,7 @@ func CreateStorageServer(ctx context.Context, cs clientset.Interface, config Tes
 	pod = startVolumeServer(ctx, cs, config)
 	gomega.Expect(pod).NotTo(gomega.BeNil(), "storage server pod should not be nil")
 	ip = pod.Status.PodIP
-	gomega.Expect(len(ip)).NotTo(gomega.BeZero(), fmt.Sprintf("pod %s's IP should not be empty", pod.Name))
+	gomega.Expect(ip).NotTo(gomega.BeEmpty(), fmt.Sprintf("pod %s's IP should not be empty", pod.Name))
 	framework.Logf("%s server pod IP address: %s", config.Prefix, ip)
 	return pod, ip
 }
@@ -329,6 +337,10 @@ func startVolumeServer(ctx context.Context, client clientset.Interface, config T
 		},
 	}
 
+	if config.ClientNodeSelection.Name != "" {
+		serverPod.Spec.NodeName = config.ClientNodeSelection.Name
+	}
+
 	var pod *v1.Pod
 	serverPod, err := podClient.Create(ctx, serverPod, metav1.CreateOptions{})
 	// ok if the server pod already exists. TODO: make this controllable by callers
@@ -355,7 +367,7 @@ func startVolumeServer(ctx context.Context, client clientset.Interface, config T
 		}
 	}
 	if config.ServerReadyMessage != "" {
-		_, err := e2epodoutput.LookForStringInLog(pod.Namespace, pod.Name, serverPodName, config.ServerReadyMessage, VolumeServerPodStartupTimeout)
+		_, err := e2epodoutput.LookForStringInLogWithoutKubectl(ctx, client, pod.Namespace, pod.Name, serverPodName, config.ServerReadyMessage, VolumeServerPodStartupTimeout)
 		framework.ExpectNoError(err, "Failed to find %q in pod logs: %s", config.ServerReadyMessage, err)
 	}
 	return pod
@@ -371,7 +383,7 @@ func TestServerCleanup(ctx context.Context, f *framework.Framework, config TestC
 	}
 
 	err := e2epod.DeletePodWithWaitByName(ctx, f.ClientSet, config.Prefix+"-server", config.Namespace)
-	gomega.Expect(err).To(gomega.BeNil(), "Failed to delete pod %v in namespace %v", config.Prefix+"-server", config.Namespace)
+	framework.ExpectNoError(err, "delete pod %v in namespace %v", config.Prefix+"-server", config.Namespace)
 }
 
 func runVolumeTesterPod(ctx context.Context, client clientset.Interface, timeouts *framework.TimeoutContext, config TestConfig, podSuffix string, privileged bool, fsGroup *int64, tests []Test, slow bool) (*v1.Pod, error) {

@@ -308,7 +308,7 @@ func (dswp *desiredStateOfWorldPopulator) processPodVolumes(
 		} else {
 			klog.V(4).InfoS("Added volume to desired state", "pod", klog.KObj(pod), "volumeName", podVolume.Name, "volumeSpecName", volumeSpec.Name())
 		}
-		if !utilfeature.DefaultFeatureGate.Enabled(features.SELinuxMountReadWriteOncePod) {
+		if !utilfeature.DefaultFeatureGate.Enabled(features.NewVolumeManagerReconstruction) {
 			// sync reconstructed volume. This is necessary only when the old-style reconstruction is still used.
 			// With reconstruct_new.go, AWS.MarkVolumeAsMounted will update the outer spec name of previously
 			// uncertain volumes.
@@ -374,7 +374,7 @@ func (dswp *desiredStateOfWorldPopulator) checkVolumeFSResize(
 	dswp.desiredStateOfWorld.UpdatePersistentVolumeSize(uniqueVolumeName, pvCap)
 
 	// in case the actualStateOfWorld was rebuild after kubelet restart ensure that claimSize is set to accurate value
-	dswp.actualStateOfWorld.InitializeClaimSize(uniqueVolumeName, pvcStatusCap)
+	dswp.actualStateOfWorld.InitializeClaimSize(klog.TODO(), uniqueVolumeName, pvcStatusCap)
 }
 
 func getUniqueVolumeName(

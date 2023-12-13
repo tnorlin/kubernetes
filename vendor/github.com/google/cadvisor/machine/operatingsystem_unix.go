@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build freebsd || darwin || linux
-// +build freebsd darwin linux
+//go:build freebsd || darwin || linux || solaris
+// +build freebsd darwin linux solaris
 
 package machine
 
@@ -38,6 +38,14 @@ func getOperatingSystem() (string, error) {
 		}
 		return string(osName), nil
 	}
+        if runtime.GOOS == "solaris" {
+                cmd := exec.Command("uname", "-o")
+                osName, err := cmd.Output()
+                if err != nil {
+                        return "", err
+                }
+                return string(osName), nil
+        }
 	bytes, err := os.ReadFile("/etc/os-release")
 	if err != nil && os.IsNotExist(err) {
 		// /usr/lib/os-release in stateless systems like Clear Linux

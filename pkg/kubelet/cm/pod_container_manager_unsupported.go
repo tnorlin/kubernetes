@@ -1,6 +1,5 @@
-//go:build !linux
-// +build !linux
-
+//go:build !linux && !solaris
+// +build !linux,!solaris
 /*
 Copyright 2016 The Kubernetes Authors.
 

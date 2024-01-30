@@ -1,3 +1,5 @@
+//go:build !solaris
+//build !solaris
 /*
 Copyright 2017 The Kubernetes Authors.
 

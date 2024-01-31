@@ -1,5 +1,5 @@
-//go:build !linux && !windows && !solaris
-// +build !linux,!windows,!solaris
+//go:build !linux && !windows && !solaris && !openbsd
+// +build !linux,!windows,!solaris,!openbsd
 
 /*
 Copyright 2020 The Kubernetes Authors.

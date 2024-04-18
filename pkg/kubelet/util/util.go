@@ -1,5 +1,3 @@
-//go:build !solaris && !openbsd
-//build !solaris,!openbsd
 /*
 Copyright 2017 The Kubernetes Authors.
 

@@ -1,3 +1,5 @@
+//go:build !openbsd
+//build !openbsd
 /*
 Copyright 2018 The Kubernetes Authors.
 

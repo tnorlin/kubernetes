@@ -5,6 +5,7 @@
 <img src="https://github.com/kubernetes/kubernetes/raw/master/logo/logo.png" width="100">
 
 ----
+##### Notes regarding illumos and FreeBSD, check out https://kubernaut.eu/ or https://medium.com/@norlin.t for examples to stand up a Kubernetes control plane.
 
 Kubernetes, also known as K8s, is an open source system for managing [containerized applications]
 across multiple hosts. It provides basic mechanisms for the deployment, maintenance,

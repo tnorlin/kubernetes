@@ -1,5 +1,5 @@
-//go:build !linux && !windows && !solaris && !openbsd
-// +build !linux,!windows,!solaris,!openbsd
+//go:build !windows && !linux
+// +build !windows,!linux
 
 /*
 Copyright 2020 The Kubernetes Authors.
@@ -17,13 +17,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cm
+package options
 
 import (
-	"k8s.io/api/core/v1"
-	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
+	"syscall"
+
+	"fmt"
+
+	"golang.org/x/sys/unix"
+
 )
 
-func (i *internalContainerLifecycleImpl) PreCreateContainer(pod *v1.Pod, container *v1.Container, containerConfig *runtimeapi.ContainerConfig) error {
-	return nil
+func permitPortReuse(network, addr string, conn syscall.RawConn) error {
+        return fmt.Errorf("port reuse is not supported on Solaris")
+}
+
+func permitAddressReuse(network, addr string, conn syscall.RawConn) error {
+	return conn.Control(func(fd uintptr) {
+                syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+	})
 }

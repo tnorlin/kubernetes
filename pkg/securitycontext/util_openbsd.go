@@ -1,8 +1,5 @@
-//go:build !linux && !windows && !solaris && !openbsd
-// +build !linux,!windows,!solaris,!openbsd
-
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,14 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cm
+package securitycontext
 
-import (
-	"k8s.io/api/core/v1"
-	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
-	"k8s.io/klog/v2"
-)
-
-func (i *internalContainerLifecycleImpl) PreCreateContainer(logger klog.Logger, pod *v1.Pod, container *v1.Container, containerConfig *runtimeapi.ContainerConfig) error {
+func possibleCPUs() []int {
 	return nil
 }

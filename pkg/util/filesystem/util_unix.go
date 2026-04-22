@@ -1,4 +1,4 @@
-//go:build freebsd || linux || darwin
+//go:build freebsd || linux || darwin || solaris || openbsd
 
 /*
 Copyright 2023 The Kubernetes Authors.
